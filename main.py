@@ -49,7 +49,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
 # Amharic prompt for blind person assistance
-AMHARIC_PROMPT = "Explain this image for the blind person in fluent native Amharic"
+AMHARIC_PROMPT = "Explain this image for the blind person in fluent native Amharic, try to make it short and clear response."
 
 logger.info("Ra'yee Backend initialized successfully")
 
@@ -157,4 +157,5 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
+
 
