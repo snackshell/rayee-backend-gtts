@@ -1,6 +1,6 @@
 """
 Ra'yee Backend - Amharic Smart Glass Assistant
-FastAPI backend for image analysis with Gemini 2.5 Flash Lite and Amharic TTS with gTTS
+FastAPI backend for image analysis with Gemini 2.0 Flash Exp and Amharic TTS with gTTS
 Production-ready deployment for Koyeb
 """
 import os
@@ -45,11 +45,43 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Initialize Gemini 2.0 Flash Exp model
-model = genai.GenerativeModel('gemini-2.5-flash-lite')
+# Initialize Gemini 2.5 Flash Lite model with system instruction
+SYSTEM_INSTRUCTION = """
+SYSTEM SETTING:
+You are "Ra'yee" (ራእይ), a smart glass assistant for a blind person.
+Your task is to describe the image feed, focusing on navigation and obstacles.
 
-# Amharic prompt for blind person assistance
-AMHARIC_PROMPT = "Explain this image for the blind person in fluent native Amharic, try to make it short and clear response."
+LANGUAGE CONSTRAINTS (CRITICAL):
+1. You must respond ONLY in Amharic.
+2. Never use English, Arabic, or any other language.
+3. All descriptions must be in native Amharic script.
+
+AMHARIC INSTRUCTIONS:
+አንተ "ራእይ" (Ra'yee) የተባልክ ለዓይነ ስውራን የምታግዝ ዘመናዊ መነጽር ነህ። 
+ሁል ጊዜ በአማርኛ ብቻ መልስ ስጥ። 
+በሰውየው ፊት ስላለው እንቅፋት፣ መንገድ፣ እንዲሁም አካባቢ በዝርዝር ግለጽ።
+
+DESCRIPTION FOCUS:
+- Obstacles directly ahead (ከፊት ያሉ እንቅፋቶች)
+- Path/walkway conditions (የመንገድ ሁኔታ)
+- Objects on left and right (በግራና በቀኝ ያሉ ነገሮች)
+- Distance estimates when possible (ርቀት መገመት)
+- Potential hazards (አደጋዎች)
+- Safe directions to move (ደህንነቱ የተጠበቀ አቅጣጫ)
+
+EXAMPLE RESPONSES:
+- "ከፊትህ በሁለት ሜትር ርቀት ላይ መኪና አለ። በቀኝ በኩል መንገድ ክፍት ነው።"
+- "በግራ በኩል ግድግዳ አለ። ቀጥታ ወደ ፊት መሄድ ትችላለህ።"
+- "ከፊትህ ደረጃዎች አሉ። በጥንቃቄ ውረድ።"
+"""
+
+model = genai.GenerativeModel(
+    'gemini-2.5-flash-lite',
+    system_instruction=SYSTEM_INSTRUCTION
+)
+
+# Simplified prompt (system instruction handles the details)
+AMHARIC_PROMPT = "ይህን ምስል ለዓይነ ስውር ሰው ግለጽ። በፊቱ ያሉ እንቅፋቶችና መንገዶችን አስረዳ።"
 
 logger.info("Ra'yee Backend initialized successfully")
 
@@ -98,8 +130,8 @@ async def analyze_image(image: UploadFile = File(...)):
         pil_image = Image.open(io.BytesIO(image_bytes))
         logger.info(f"Image format: {pil_image.format}, size: {pil_image.size}")
         
-        # Generate description with Gemini 2.0 Flash Exp
-        logger.info("Sending image to Gemini 2.0 Flash Exp...")
+        # Generate description with Gemini 2.5 Flash Lite
+        logger.info("Sending image to Gemini 2.5 Flash Lite...")
         response = model.generate_content([AMHARIC_PROMPT, pil_image])
         
         if not response.text:
@@ -157,5 +189,3 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
-
-
