@@ -1,6 +1,6 @@
 """
 Ra'yee Backend - Amharic Smart Glass Assistant
-FastAPI backend for image analysis with Gemini 2.0 Flash Exp and Amharic TTS with gTTS
+FastAPI backend for image analysis with Gemini 2.5 Flash Lite and Amharic TTS with gTTS
 Production-ready deployment for Koyeb
 """
 import os
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Ra'yee Backend",
     version="1.0.0",
-    description="Amharic Smart Glass Assistant - Image Analysis with Gemini 2.0 Flash Exp + gTTS"
+    description="Amharic Smart Glass Assistant - Image Analysis with Gemini 2.5 Flash Lite + gTTS"
 )
 
 # Configure CORS for Flutter mobile app
@@ -46,7 +46,7 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 # Initialize Gemini 2.0 Flash Exp model
-model = genai.GenerativeModel('gemini-2.0-flash-exp')
+model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
 # Amharic prompt for blind person assistance
 AMHARIC_PROMPT = "Explain this image for the blind person in fluent native Amharic"
@@ -72,7 +72,7 @@ async def root():
 @app.post("/analyze-image")
 async def analyze_image(image: UploadFile = File(...)):
     """
-    Analyzes an image using Gemini 2.0 Flash Exp and returns Amharic audio description
+    Analyzes an image using Gemini 2.5 Flash Lite and returns Amharic audio description
     
     Args:
         image: JPEG/PNG image file from ESP32-CAM or mobile app
@@ -140,7 +140,7 @@ async def health():
     return {
         "status": "healthy",
         "gemini_configured": bool(GEMINI_API_KEY),
-        "model": "gemini-2.0-flash-exp",
+        "model": "gemini-2.5-flash-lite",
         "tts_engine": "gTTS",
         "language": "Amharic (am)",
         "version": "1.0.0"
@@ -157,3 +157,4 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
+
