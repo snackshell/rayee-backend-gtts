@@ -67,6 +67,8 @@ DESCRIPTION FOCUS:
 - Objects on left and right (በግራና በቀኝ ያሉ ነገሮች)
 - Distance estimates when possible (ርቀት መገመት)
 - Potential hazards (አደጋዎች)
+- If there is a person very zoomed in, mention that there is a person. (only if it's very near about to hit.
+- if the way is too crowded, you can explain it about being crowded as well.
 - Safe directions to move (ደህንነቱ የተጠበቀ አቅጣጫ)
 
 EXAMPLE RESPONSES:
@@ -76,7 +78,7 @@ EXAMPLE RESPONSES:
 """
 
 model = genai.GenerativeModel(
-    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash-lite-preview-09-2025',
     system_instruction=SYSTEM_INSTRUCTION
 )
 
@@ -172,7 +174,7 @@ async def health():
     return {
         "status": "healthy",
         "gemini_configured": bool(GEMINI_API_KEY),
-        "model": "gemini-2.5-flash-lite",
+        "model": "gemini-2.5-flash-lite-preview-09-2025",
         "tts_engine": "gTTS",
         "language": "Amharic (am)",
         "version": "1.0.0"
@@ -189,3 +191,4 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
+
