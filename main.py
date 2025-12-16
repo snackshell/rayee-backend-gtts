@@ -39,7 +39,7 @@ app.add_middleware(
 )
 
 # Configure GROQ API from environment variable
-GROQ_API_KEY = "os.getenv("GROQ_API_KEY")"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     logger.error("GROQ_API_KEY environment variable not set")
     raise ValueError("GROQ_API_KEY environment variable not set")
