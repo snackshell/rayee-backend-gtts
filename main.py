@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Ra'yee Backend",
     version="2.0.0",
-    description="Amharic Smart Glass Assistant - Image Analysis with GROQ Llama 4 + Vercel Translator + gTTS"
+    description="Amharic/Tigrinya Smart Glass Assistant - Image Analysis with GROQ Llama 4 + Vercel Translator + gTTS"
 )
 
 # Configure CORS for Flutter mobile app
@@ -76,16 +76,17 @@ async def root():
         "service": "Ra'yee Backend",
         "version": "2.0.0",
         "status": "running",
-        "description": "Amharic Smart Glass Assistant API (GROQ + Vercel Translator)",
+        "description": "Amharic/Tigrinya Smart Glass Assistant API (GROQ + Vercel Translator)",
         "endpoints": {
-            "POST /analyze-image": "Analyze image and return Amharic audio",
+            "POST /api-am": "Analyze image and return Amharic audio",
+            "POST /api-ti": "Analyze image and return Tigrinya audio",
             "GET /health": "Health check endpoint"
         }
     }
 
 
-@app.post("/analyze-image")
-async def analyze_image(image: UploadFile = File(...)):
+@app.post("/api-am")
+async def analyze_image_amharic(image: UploadFile = File(...)):
     """
     Analyzes an image using GROQ Llama 4 and returns Amharic audio description
     
@@ -104,7 +105,7 @@ async def analyze_image(image: UploadFile = File(...)):
         if not image.filename:
             raise HTTPException(status_code=400, detail="No image file provided")
         
-        logger.info(f"Received image: {image.filename}, content_type: {image.content_type}")
+        logger.info(f"[AMHARIC] Received image: {image.filename}, content_type: {image.content_type}")
         
         # Read image bytes
         image_bytes = await image.read()
@@ -179,8 +180,116 @@ async def analyze_image(image: UploadFile = File(...)):
             audio_buffer,
             media_type="audio/mpeg",
             headers={
-                "Content-Disposition": "attachment; filename=rayee_response.mp3",
+                "Content-Disposition": "attachment; filename=rayee_response_am.mp3",
                 "X-Amharic-Text": base64.b64encode(amharic_text.encode('utf-8')).decode('utf-8'),
+                "X-English-Text": base64.b64encode(english_text.encode('utf-8')).decode('utf-8')
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing image: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+
+@app.post("/api-ti")
+async def analyze_image_tigrinya(image: UploadFile = File(...)):
+    """
+    Analyzes an image using GROQ Llama 4 and returns Tigrinya audio description
+    
+    Args:
+        image: JPEG/PNG image file from ESP32-CAM or mobile app
+        
+    Returns:
+        MP3 audio file with Tigrinya description (using Amharic voice)
+        
+    Headers:
+        X-Tigrinya-Text: Base64 encoded Tigrinya text response
+        X-English-Text: Base64 encoded English text response
+    """
+    try:
+        # Validate image file
+        if not image.filename:
+            raise HTTPException(status_code=400, detail="No image file provided")
+        
+        logger.info(f"[TIGRINYA] Received image: {image.filename}, content_type: {image.content_type}")
+        
+        # Read image bytes
+        image_bytes = await image.read()
+        logger.info(f"Image size: {len(image_bytes)} bytes")
+        
+        # Encode image to base64
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        
+        # Analyze image with GROQ Llama 4
+        logger.info("Sending image to GROQ Llama 4...")
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": VISION_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            temperature=0.7,
+            max_tokens=150,
+        )
+        
+        english_text = chat_completion.choices[0].message.content
+        logger.info(f"GROQ response (English): {english_text[:100]}...")
+        
+        # Translate to Tigrinya using Vercel API
+        logger.info("Translating to Tigrinya...")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            translation_response = await client.post(
+                TRANSLATOR_API,
+                json={
+                    "text": english_text,
+                    "source_language": "en",
+                    "target_language": "ti"
+                }
+            )
+            
+            if translation_response.status_code != 200:
+                logger.error(f"Translation failed: {translation_response.status_code}")
+                raise HTTPException(status_code=500, detail="Translation service error")
+            
+            translation_data = translation_response.json()
+            tigrinya_text = translation_data.get("translated_text", "")
+            
+            if not tigrinya_text:
+                logger.error("Empty translation response")
+                raise HTTPException(status_code=500, detail="Translation returned empty")
+        
+        logger.info(f"Tigrinya translation: {tigrinya_text[:100]}...")
+        
+        # Generate audio with gTTS using Amharic voice (Ge'ez script compatibility)
+        logger.info("Generating Tigrinya audio with gTTS (using Amharic voice)...")
+        tts = gTTS(text=tigrinya_text, lang='am', slow=False)
+        
+        # Save to BytesIO buffer
+        audio_buffer = io.BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        
+        logger.info("Audio generated successfully")
+        
+        # Return MP3 audio as streaming response
+        return StreamingResponse(
+            audio_buffer,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "attachment; filename=rayee_response_ti.mp3",
+                "X-Tigrinya-Text": base64.b64encode(tigrinya_text.encode('utf-8')).decode('utf-8'),
                 "X-English-Text": base64.b64encode(english_text.encode('utf-8')).decode('utf-8')
             }
         )
@@ -201,7 +310,7 @@ async def health():
         "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
         "translator": "Vercel Selam-Trans API",
         "tts_engine": "gTTS",
-        "language": "Amharic (am)",
+        "languages": ["Amharic (am)", "Tigrinya (ti)"],
         "version": "2.0.0"
     }
 
