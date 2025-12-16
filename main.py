@@ -1,16 +1,17 @@
 """
 Ra'yee Backend - Amharic Smart Glass Assistant
-FastAPI backend for image analysis with Gemini 2.0 Flash Exp and Amharic TTS with gTTS
+FastAPI backend for image analysis with GROQ Llama 4 + Vercel Translator + gTTS
 Production-ready deployment for Koyeb
 """
 import os
 import io
 import base64
+import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
-import google.generativeai as genai
+from groq import Groq
 from PIL import Image
 import logging
 
@@ -24,8 +25,8 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Ra'yee Backend",
-    version="1.0.0",
-    description="Amharic Smart Glass Assistant - Image Analysis with Gemini 2.0 Flash Lite + gTTS"
+    version="2.0.0",
+    description="Amharic Smart Glass Assistant - Image Analysis with GROQ Llama 4 + Vercel Translator + gTTS"
 )
 
 # Configure CORS for Flutter mobile app
@@ -37,55 +38,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure Gemini API from environment variable
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    logger.error("GEMINI_API_KEY environment variable not set")
-    raise ValueError("GEMINI_API_KEY environment variable not set")
+# Configure GROQ API from environment variable
+GROQ_API_KEY = "os.getenv("GROQ_API_KEY")"
+if not GROQ_API_KEY:
+    logger.error("GROQ_API_KEY environment variable not set")
+    raise ValueError("GROQ_API_KEY environment variable not set")
 
-genai.configure(api_key=GEMINI_API_KEY)
+# Initialize GROQ client
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-# Initialize Gemini 2.0 Flash Lite model with system instruction
-SYSTEM_INSTRUCTION = """
-SYSTEM SETTING:
-You are "Ra'yee" (ራእይ), a smart glass assistant for a blind person.
-Your task is to describe the image feed, focusing on navigation and obstacles.
+# Vercel translator API endpoint
+TRANSLATOR_API = "https://selam-trans.vercel.app/api/translate"
 
-LANGUAGE CONSTRAINTS (CRITICAL):
-1. You must respond ONLY in Amharic.
-2. Never use English, Arabic, or any other language.
-3. All descriptions must be in native Amharic script.
+# Vision prompt for GROQ (in English)
+VISION_PROMPT = """You are "Ra'yee", a smart glass assistant for a blind person.
+Describe this image focusing on navigation and obstacles.
 
-AMHARIC INSTRUCTIONS:
-አንተ "ራእይ" (Ra'yee) የተባልክ ለዓይነ ስውራን የምታግዝ ዘመናዊ መነጽር ነህ። 
-ሁል ጊዜ በአማርኛ ብቻ መልስ ስጥ። 
-በሰውየው ፊት ስላለው እንቅፋት፣ መንገድ፣ እንዲሁም አካባቢ በዝርዝር ግለጽ።
+Focus on:
+- Obstacles directly ahead and their distance (estimate in meters)
+- Path/walkway conditions
+- Objects on left and right sides
+- Potential hazards or dangers
+- Safe directions to move
+- If a person is very close (about to collide), mention it
+- If the area is crowded, mention it
 
-DESCRIPTION FOCUS:
-- Obstacles directly ahead (ከፊት ያሉ እንቅፋቶች)
-- Path/walkway conditions (የመንገድ ሁኔታ)
-- Objects on left and right (በግራና በቀኝ ያሉ ነገሮች)
-- Distance estimates when possible (ርቀት መገመት)
-- Potential hazards (አደጋዎች)
-- If there is a person very zoomed in, mention that there is a person. (only if it's very near about to hit.
-- if the way is too crowded, you can explain it about being crowded as well.
-- Safe directions to move (ደህንነቱ የተጠበቀ አቅጣጫ)
+Keep the description concise (2-3 sentences) and practical for navigation.
+Use simple, clear language."""
 
-EXAMPLE RESPONSES:
-- "ከፊትህ በሁለት ሜትር ርቀት ላይ መኪና አለ። በቀኝ በኩል መንገድ ክፍት ነው።"
-- "በግራ በኩል ግድግዳ አለ። ቀጥታ ወደ ፊት መሄድ ትችላለህ።"
-- "ከፊትህ ደረጃዎች አሉ። በጥንቃቄ ውረድ።"
-"""
-
-model = genai.GenerativeModel(
-    'gemini-2.0-flash-lite',
-    system_instruction=SYSTEM_INSTRUCTION
-)
-
-# Simplified prompt (system instruction handles the details)
-AMHARIC_PROMPT = "ይህን ምስል ለዓይነ ስውር ሰው ግለጽ። በፊቱ ያሉ እንቅፋቶችና መንገዶችን አስረዳ።"
-
-logger.info("Ra'yee Backend initialized successfully")
+logger.info("Ra'yee Backend initialized with GROQ + Vercel Translator")
 
 
 @app.get("/")
@@ -93,9 +74,9 @@ async def root():
     """Root endpoint - API information"""
     return {
         "service": "Ra'yee Backend",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
-        "description": "Amharic Smart Glass Assistant API",
+        "description": "Amharic Smart Glass Assistant API (GROQ + Vercel Translator)",
         "endpoints": {
             "POST /analyze-image": "Analyze image and return Amharic audio",
             "GET /health": "Health check endpoint"
@@ -106,7 +87,7 @@ async def root():
 @app.post("/analyze-image")
 async def analyze_image(image: UploadFile = File(...)):
     """
-    Analyzes an image using Gemini 2.5 Flash Lite and returns Amharic audio description
+    Analyzes an image using GROQ Llama 4 and returns Amharic audio description
     
     Args:
         image: JPEG/PNG image file from ESP32-CAM or mobile app
@@ -116,6 +97,7 @@ async def analyze_image(image: UploadFile = File(...)):
         
     Headers:
         X-Amharic-Text: Base64 encoded Amharic text response
+        X-English-Text: Base64 encoded English text response
     """
     try:
         # Validate image file
@@ -128,19 +110,58 @@ async def analyze_image(image: UploadFile = File(...)):
         image_bytes = await image.read()
         logger.info(f"Image size: {len(image_bytes)} bytes")
         
-        # Open image with PIL
-        pil_image = Image.open(io.BytesIO(image_bytes))
-        logger.info(f"Image format: {pil_image.format}, size: {pil_image.size}")
+        # Encode image to base64
+        base64_image = base64.b64encode(image_bytes).decode('utf-8')
         
-        # Generate description with Gemini 2.5 Flash Lite
-        logger.info("Sending image to Gemini 2.5 Flash Lite...")
-        response = model.generate_content([AMHARIC_PROMPT, pil_image])
+        # Analyze image with GROQ Llama 4
+        logger.info("Sending image to GROQ Llama 4...")
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": VISION_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            model="meta-llama/llama-4-maverick-17b-128e-instruct",
+            temperature=0.7,
+            max_tokens=150,
+        )
         
-        if not response.text:
-            raise HTTPException(status_code=500, detail="Gemini returned empty response")
+        english_text = chat_completion.choices[0].message.content
+        logger.info(f"GROQ response (English): {english_text[:100]}...")
         
-        amharic_text = response.text
-        logger.info(f"Gemini response: {amharic_text[:100]}...")
+        # Translate to Amharic using Vercel API
+        logger.info("Translating to Amharic...")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            translation_response = await client.post(
+                TRANSLATOR_API,
+                json={
+                    "text": english_text,
+                    "source_language": "en",
+                    "target_language": "am"
+                }
+            )
+            
+            if translation_response.status_code != 200:
+                logger.error(f"Translation failed: {translation_response.status_code}")
+                raise HTTPException(status_code=500, detail="Translation service error")
+            
+            translation_data = translation_response.json()
+            amharic_text = translation_data.get("translated_text", "")
+            
+            if not amharic_text:
+                logger.error("Empty translation response")
+                raise HTTPException(status_code=500, detail="Translation returned empty")
+        
+        logger.info(f"Amharic translation: {amharic_text[:100]}...")
         
         # Generate Amharic audio with gTTS
         logger.info("Generating Amharic audio with gTTS...")
@@ -159,10 +180,13 @@ async def analyze_image(image: UploadFile = File(...)):
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=rayee_response.mp3",
-                "X-Amharic-Text": base64.b64encode(amharic_text.encode('utf-8')).decode('utf-8')
+                "X-Amharic-Text": base64.b64encode(amharic_text.encode('utf-8')).decode('utf-8'),
+                "X-English-Text": base64.b64encode(english_text.encode('utf-8')).decode('utf-8')
             }
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
@@ -173,11 +197,12 @@ async def health():
     """Health check endpoint for monitoring"""
     return {
         "status": "healthy",
-        "gemini_configured": bool(GEMINI_API_KEY),
-        "model": "gemini-2.0-flash-lite",
+        "groq_configured": bool(GROQ_API_KEY),
+        "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "translator": "Vercel Selam-Trans API",
         "tts_engine": "gTTS",
         "language": "Amharic (am)",
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
 
 
@@ -191,5 +216,3 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
-
-
