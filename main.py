@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Ra'yee Backend",
     version="1.0.0",
-    description="Amharic Smart Glass Assistant - Image Analysis with Gemini 2.5 Flash Lite + gTTS"
+    description="Amharic Smart Glass Assistant - Image Analysis with Gemini 2.0 Flash Lite + gTTS"
 )
 
 # Configure CORS for Flutter mobile app
@@ -45,7 +45,7 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Initialize Gemini 2.5 Flash Lite model with system instruction
+# Initialize Gemini 2.0 Flash Lite model with system instruction
 SYSTEM_INSTRUCTION = """
 SYSTEM SETTING:
 You are "Ra'yee" (ራእይ), a smart glass assistant for a blind person.
@@ -78,7 +78,7 @@ EXAMPLE RESPONSES:
 """
 
 model = genai.GenerativeModel(
-    'gemini-2.5-flash-lite-preview-09-2025',
+    'gemini-2.0-flash-lite',
     system_instruction=SYSTEM_INSTRUCTION
 )
 
@@ -174,7 +174,7 @@ async def health():
     return {
         "status": "healthy",
         "gemini_configured": bool(GEMINI_API_KEY),
-        "model": "gemini-2.5-flash-lite-preview-09-2025",
+        "model": "gemini-2.0-flash-lite",
         "tts_engine": "gTTS",
         "language": "Amharic (am)",
         "version": "1.0.0"
@@ -191,4 +191,5 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
+
 
