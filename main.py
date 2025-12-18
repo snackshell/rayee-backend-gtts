@@ -9,7 +9,7 @@ import base64
 import logging
 import google.generativeai as genai
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
 
@@ -202,9 +202,9 @@ async def analyze_image_amharic(image: UploadFile = File(...)):
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
         
-        # 3. Stream Response
-        return StreamingResponse(
-            audio_buffer,
+        # 3. Send Complete Response (removed streaming)
+        return Response(
+            content=audio_buffer.getvalue(),
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=rayee_am.mp3",
@@ -238,9 +238,9 @@ async def analyze_image_tigrinya(image: UploadFile = File(...)):
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
         
-        # 3. Stream Response
-        return StreamingResponse(
-            audio_buffer,
+        # 3. Send Complete Response (removed streaming)
+        return Response(
+            content=audio_buffer.getvalue(),
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=rayee_ti.mp3",
@@ -269,5 +269,3 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting Ra'yee Backend on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-
