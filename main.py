@@ -1,19 +1,17 @@
 """
-Ra'yee Backend - Amharic Smart Glass Assistant
-FastAPI backend for image analysis with GROQ Llama 4 + Vercel Translator + gTTS
+Ra'yee Backend - Amharic/Tigrinya Smart Glass Assistant
+FastAPI backend for image analysis with Google Gemini 2.5 Flash Lite + gTTS
 Production-ready deployment for Koyeb
 """
 import os
 import io
 import base64
-import httpx
+import logging
+import google.generativeai as genai
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
-from groq import Groq
-from PIL import Image
-import logging
 
 # Configure logging for production
 logging.basicConfig(
@@ -25,48 +23,120 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Ra'yee Backend",
-    version="2.0.0",
-    description="Amharic/Tigrinya Smart Glass Assistant - Image Analysis with GROQ Llama 4 + Vercel Translator + gTTS"
+    version="3.2.0",
+    description="Amharic/Tigrinya Smart Glass Assistant - Gemini 2.5 Flash Lite + gTTS (Multi-Key Support)"
 )
 
 # Configure CORS for Flutter mobile app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for mobile app
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure GROQ API from environment variable
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    logger.error("GROQ_API_KEY environment variable not set")
-    raise ValueError("GROQ_API_KEY environment variable not set")
+# Load API Keys
+API_KEYS = [
+    os.getenv("GEMINI_API_KEY_1"),
+    os.getenv("GEMINI_API_KEY_2"),
+    os.getenv("GEMINI_API_KEY_3"),
+    os.getenv("GEMINI_API_KEY_4"),
+    os.getenv("GEMINI_API_KEY_5"),
+]
 
-# Initialize GROQ client
-groq_client = Groq(api_key=GROQ_API_KEY)
+# Filter out None values (in case you only set 3 keys, for example)
+VALID_API_KEYS = [key for key in API_KEYS if key]
 
-# Vercel translator API endpoint
-TRANSLATOR_API = "https://selam-trans.vercel.app/api/translate"
+if not VALID_API_KEYS:
+    logger.error("No GEMINI_API_KEYS found in environment variables")
+    raise ValueError("At least one GEMINI_API_KEY must be set")
 
-# Vision prompt for GROQ (in English)
-VISION_PROMPT = """You are "Ra'yee", a smart glass assistant for a blind person.
-Describe this image focusing on navigation and obstacles.
+logger.info(f"Loaded {len(VALID_API_KEYS)} Gemini API keys for fallback redundancy.")
+
+# Generation Config
+generation_config = {
+    "temperature": 0.5,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 150,
+    "response_mime_type": "text/plain",
+}
+
+# --- SYSTEM INSTRUCTIONS ---
+
+AMHARIC_INSTRUCTIONS = """
+You are "Ra'yee", a smart glass assistant for a blind person.
+Analyze the provided image and describe it directly in fluent, native Amharic.
+
+CRITICAL RULES:
+1. Output ONLY in the Ge'ez (Fidel) script.
+2. Do NOT use Latin/English characters.
+3. Keep the description concise, urgent, and practical.
 
 Focus on:
-- Obstacles directly ahead and their distance (estimate in meters)
-- Path/walkway conditions
-- Objects on left and right sides
-- Potential hazards or dangers
-- Safe directions to move
-- If a person is very close (about to collide), mention it
-- If the area is crowded, mention it
+- Obstacles directly ahead and their approximate distance in meters.
+- Path/walkway conditions.
+- Objects on the left and right sides.
+- Potential hazards or dangers.
+- Safe directions to move.
+"""
 
-Keep the description concise (2-3 sentences) and practical for navigation.
-Use simple, clear language."""
+TIGRINYA_INSTRUCTIONS = """
+You are "Ra'yee", a smart glass assistant for a blind person.
+Analyze the provided image and describe it directly in fluent, native Tigrinya.
 
-logger.info("Ra'yee Backend initialized with GROQ + Vercel Translator")
+CRITICAL RULES:
+1. Output ONLY in the Ge'ez (Fidel) script.
+2. Do NOT use Latin/English characters.
+3. Keep the description concise, urgent, and practical.
+
+Focus on:
+- Obstacles directly ahead and their approximate distance in meters.
+- Path/walkway conditions.
+- Objects on the left and right sides.
+- Potential hazards or dangers.
+- Safe directions to move.
+"""
+
+
+async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> str:
+    """
+    Helper function to process image with Gemini.
+    Iterates through VALID_API_KEYS until one works.
+    """
+    image_part = {"mime_type": "image/jpeg", "data": image_bytes}
+    last_error = None
+
+    for index, api_key in enumerate(VALID_API_KEYS):
+        try:
+            # Configure global GenAI with the current key
+            genai.configure(api_key=api_key)
+            
+            # Initialize model
+            model = genai.GenerativeModel(
+                model_name="gemini-2.5-flash-lite",
+                generation_config=generation_config,
+                system_instruction=instructions
+            )
+
+            logger.info(f"Attempting generation with API Key #{index + 1}...")
+            
+            # Generate content
+            response = model.generate_content([image_part])
+            
+            # If successful, return immediately
+            return response.text.strip()
+            
+        except Exception as e:
+            logger.warning(f"API Key #{index + 1} failed: {str(e)}")
+            last_error = e
+            # Continue to the next key in the loop
+            continue
+
+    # If we exit the loop, all keys failed
+    logger.error("All Gemini API keys failed.")
+    raise last_error or Exception("All API keys failed to generate a response.")
 
 
 @app.get("/")
@@ -74,244 +144,96 @@ async def root():
     """Root endpoint - API information"""
     return {
         "service": "Ra'yee Backend",
-        "version": "2.0.0",
+        "version": "3.2.0",
         "status": "running",
-        "description": "Amharic/Tigrinya Smart Glass Assistant API (GROQ + Vercel Translator)",
+        "model": "gemini-2.5-flash-lite",
+        "keys_loaded": len(VALID_API_KEYS),
         "endpoints": {
-            "POST /api-am": "Analyze image and return Amharic audio",
-            "POST /api-ti": "Analyze image and return Tigrinya audio",
-            "GET /health": "Health check endpoint"
+            "POST /api-am": "Amharic Audio Analysis",
+            "POST /api-ti": "Tigrinya Audio Analysis"
         }
     }
 
 
 @app.post("/api-am")
 async def analyze_image_amharic(image: UploadFile = File(...)):
-    """
-    Analyzes an image using GROQ Llama 4 and returns Amharic audio description
-    
-    Args:
-        image: JPEG/PNG image file from ESP32-CAM or mobile app
-        
-    Returns:
-        MP3 audio file with Amharic description
-        
-    Headers:
-        X-Amharic-Text: Base64 encoded Amharic text response
-        X-English-Text: Base64 encoded English text response
-    """
     try:
-        # Validate image file
         if not image.filename:
             raise HTTPException(status_code=400, detail="No image file provided")
         
-        logger.info(f"[AMHARIC] Received image: {image.filename}, content_type: {image.content_type}")
-        
-        # Read image bytes
         image_bytes = await image.read()
-        logger.info(f"Image size: {len(image_bytes)} bytes")
         
-        # Encode image to base64
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        # 1. Get Text (with fallback logic)
+        amharic_text = await process_image_with_gemini(image_bytes, AMHARIC_INSTRUCTIONS)
         
-        # Analyze image with GROQ Llama 4
-        logger.info("Sending image to GROQ Llama 4...")
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": VISION_PROMPT},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            temperature=0.7,
-            max_tokens=150,
-        )
-        
-        english_text = chat_completion.choices[0].message.content
-        logger.info(f"GROQ response (English): {english_text[:100]}...")
-        
-        # Translate to Amharic using Vercel API
-        logger.info("Translating to Amharic...")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            translation_response = await client.post(
-                TRANSLATOR_API,
-                json={
-                    "text": english_text,
-                    "source_language": "en",
-                    "target_language": "am"
-                }
-            )
-            
-            if translation_response.status_code != 200:
-                logger.error(f"Translation failed: {translation_response.status_code}")
-                raise HTTPException(status_code=500, detail="Translation service error")
-            
-            translation_data = translation_response.json()
-            amharic_text = translation_data.get("translated_text", "")
-            
-            if not amharic_text:
-                logger.error("Empty translation response")
-                raise HTTPException(status_code=500, detail="Translation returned empty")
-        
-        logger.info(f"Amharic translation: {amharic_text[:100]}...")
-        
-        # Generate Amharic audio with gTTS
-        logger.info("Generating Amharic audio with gTTS...")
+        if not amharic_text:
+            raise HTTPException(status_code=500, detail="AI returned empty response")
+
+        # 2. Generate Audio
         tts = gTTS(text=amharic_text, lang='am', slow=False)
-        
-        # Save to BytesIO buffer
         audio_buffer = io.BytesIO()
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
         
-        logger.info("Audio generated successfully")
-        
-        # Return MP3 audio as streaming response
+        # 3. Stream Response
         return StreamingResponse(
             audio_buffer,
             media_type="audio/mpeg",
             headers={
-                "Content-Disposition": "attachment; filename=rayee_response_am.mp3",
+                "Content-Disposition": "attachment; filename=rayee_am.mp3",
                 "X-Amharic-Text": base64.b64encode(amharic_text.encode('utf-8')).decode('utf-8'),
-                "X-English-Text": base64.b64encode(english_text.encode('utf-8')).decode('utf-8')
+                "X-English-Text": "" # Safety fix for app compatibility
             }
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+        logger.error(f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api-ti")
 async def analyze_image_tigrinya(image: UploadFile = File(...)):
-    """
-    Analyzes an image using GROQ Llama 4 and returns Tigrinya audio description
-    
-    Args:
-        image: JPEG/PNG image file from ESP32-CAM or mobile app
-        
-    Returns:
-        MP3 audio file with Tigrinya description (using Amharic voice)
-        
-    Headers:
-        X-Tigrinya-Text: Base64 encoded Tigrinya text response
-        X-English-Text: Base64 encoded English text response
-    """
     try:
-        # Validate image file
         if not image.filename:
             raise HTTPException(status_code=400, detail="No image file provided")
         
-        logger.info(f"[TIGRINYA] Received image: {image.filename}, content_type: {image.content_type}")
-        
-        # Read image bytes
         image_bytes = await image.read()
-        logger.info(f"Image size: {len(image_bytes)} bytes")
         
-        # Encode image to base64
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
+        # 1. Get Text (with fallback logic)
+        tigrinya_text = await process_image_with_gemini(image_bytes, TIGRINYA_INSTRUCTIONS)
         
-        # Analyze image with GROQ Llama 4
-        logger.info("Sending image to GROQ Llama 4...")
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": VISION_PROMPT},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
-            model="meta-llama/llama-4-maverick-17b-128e-instruct",
-            temperature=0.7,
-            max_tokens=150,
-        )
-        
-        english_text = chat_completion.choices[0].message.content
-        logger.info(f"GROQ response (English): {english_text[:100]}...")
-        
-        # Translate to Tigrinya using Vercel API
-        logger.info("Translating to Tigrinya...")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            translation_response = await client.post(
-                TRANSLATOR_API,
-                json={
-                    "text": english_text,
-                    "source_language": "en",
-                    "target_language": "ti"
-                }
-            )
-            
-            if translation_response.status_code != 200:
-                logger.error(f"Translation failed: {translation_response.status_code}")
-                raise HTTPException(status_code=500, detail="Translation service error")
-            
-            translation_data = translation_response.json()
-            tigrinya_text = translation_data.get("translated_text", "")
-            
-            if not tigrinya_text:
-                logger.error("Empty translation response")
-                raise HTTPException(status_code=500, detail="Translation returned empty")
-        
-        logger.info(f"Tigrinya translation: {tigrinya_text[:100]}...")
-        
-        # Generate audio with gTTS using Amharic voice (Ge'ez script compatibility)
-        logger.info("Generating Tigrinya audio with gTTS (using Amharic voice)...")
+        if not tigrinya_text:
+            raise HTTPException(status_code=500, detail="AI returned empty response")
+
+        # 2. Generate Audio (using 'am' voice for Ge'ez script)
         tts = gTTS(text=tigrinya_text, lang='am', slow=False)
-        
-        # Save to BytesIO buffer
         audio_buffer = io.BytesIO()
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
         
-        logger.info("Audio generated successfully")
-        
-        # Return MP3 audio as streaming response
+        # 3. Stream Response
         return StreamingResponse(
             audio_buffer,
             media_type="audio/mpeg",
             headers={
-                "Content-Disposition": "attachment; filename=rayee_response_ti.mp3",
+                "Content-Disposition": "attachment; filename=rayee_ti.mp3",
                 "X-Tigrinya-Text": base64.b64encode(tigrinya_text.encode('utf-8')).decode('utf-8'),
-                "X-English-Text": base64.b64encode(english_text.encode('utf-8')).decode('utf-8')
+                "X-English-Text": "" # Safety fix for app compatibility
             }
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error processing image: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+        logger.error(f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for monitoring"""
     return {
         "status": "healthy",
-        "groq_configured": bool(GROQ_API_KEY),
-        "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
-        "translator": "Vercel Selam-Trans API",
-        "tts_engine": "gTTS",
-        "languages": ["Amharic (am)", "Tigrinya (ti)"],
-        "version": "2.0.0"
+        "keys_configured": len(VALID_API_KEYS),
+        "model": "gemini-2.5-flash-lite",
+        "version": "3.2.0"
     }
 
 
@@ -319,9 +241,4 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting Ra'yee Backend on port {port}")
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=port)
