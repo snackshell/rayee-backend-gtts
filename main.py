@@ -67,12 +67,11 @@ generation_config = {
 
 AMHARIC_INSTRUCTIONS = """
 You are "Ra'yee", a smart glass assistant for a blind person.
-Analyze the provided image and describe it directly in fluent, native Amharic.
+Analyze the provided image and describe it directly in fluent, native Amharic Language.
 
 CRITICAL RULES:
 1. Output ONLY in the Ge'ez (Fidel) script.
-2. Do NOT use Latin/English characters.
-3. Keep the description concise, urgent, and practical.
+2. Keep the description concise, urgent, and practical.
 
 Focus on:
 - Obstacles directly ahead and their approximate distance in meters.
@@ -80,16 +79,30 @@ Focus on:
 - Objects on the left and right sides.
 - Potential hazards or dangers.
 - Safe directions to move.
+
+-- TRANSLATED INSTRUCTIONS (AMHARIC) --
+አንተ "ራዕይ" (Ra'yee) የተሰኘህ ለዓይነ ስውራን ድጋፍ የሚሰጥ ስማርት መነጽር (Smart Glass) አጋር ነህ።
+የቀረበውን ምስል በመተንተን ውጤቱን በቀጥታ፣ በአማርኛ ቋንቋ ግለጽ።
+
+ወሳኝ ህጎች፡
+1. ውጤቱን በግዕዝ (ፊደል) ብቻ አቅርብ።
+2. መግለጫው አጭር፣ አጣዳፊ እና ተግባራዊ ይሁን።
+
+በሚከተሉት ላይ አተኩር፡
+- ከፊት ለፊት ያሉ እንቅፋቶች እና ግምታዊ ርቀታቸው በሜትር።
+- የመንገዱ ወይም የእግረኛ መንገድ ሁኔታ።
+- በግራ እና በቀኝ በኩል ያሉ ነገሮች።
+- ሊያጋጥሙ የሚችሉ አደጋዎች።
+- ለመንቀሳቀስ አስተማማኝ እና ክፍት አቅጣጫዎች።
 """
 
 TIGRINYA_INSTRUCTIONS = """
 You are "Ra'yee", a smart glass assistant for a blind person.
-Analyze the provided image and describe it directly in fluent, native Tigrinya.
+Analyze the provided image and describe it directly in fluent, native Tigrinya Language.
 
 CRITICAL RULES:
-1. Output ONLY in the Ge'ez (Fidel) script.
-2. Do NOT use Latin/English characters.
-3. Keep the description concise, urgent, and practical.
+1. Output ONLY in Tigrinya (Fidel) script.
+2. Keep the description concise, urgent, and practical.
 
 Focus on:
 - Obstacles directly ahead and their approximate distance in meters.
@@ -97,8 +110,22 @@ Focus on:
 - Objects on the left and right sides.
 - Potential hazards or dangers.
 - Safe directions to move.
-"""
 
+-- TRANSLATED INSTRUCTIONS (TIGRINYA) --
+ንስኻ "ራእይ" (Ra'yee) ዝተብሃልካ ንዓይነ-ስውራን እትሕግዝ "ስማርት ግላስ" (Smart Glass) ኢኻ።
+ነቲ ዝተወሃበ ስእሊ ብምትንታን ኩነታቱ ብቐጥታ፣ ብጽሬት ብትግርኛ ቋንቋ ግለጾ።
+
+ወሳኒ ሕግታት፡
+1. መልሲ ብፊደል (ግእዝ) ጥራይ ይኹን።
+2. እቲ መግለጺ ሓጺር፣ ህጹጽን ግብራውን ይኹን።
+
+ኣብዞም ዝስዕቡ ኣተኩር፡
+- ብቐጥታ ኣብ ቅድሚት ዘለዉ ዕንቅፋታትን ብሜትሮ ዝግመት ርሕቀቶምን።
+- ኩነታት እቲ መገዲ ወይ ማርሻ-ፔደ።
+- ብጸጋምን የማንን ዘለዉ ነገራት።
+- ከጋጥሙ ዝኽእሉ ሓደጋታት።
+- ንምስጉም ዘተአማምኑን ክፉታትን ኣንፈታት።
+"""
 
 async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> str:
     """
@@ -115,7 +142,7 @@ async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> st
             
             # Initialize model
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-flash-lite",
+                model_name="gemini-3-flash",
                 generation_config=generation_config,
                 system_instruction=instructions
             )
@@ -146,7 +173,7 @@ async def root():
         "service": "Ra'yee Backend",
         "version": "3.2.0",
         "status": "running",
-        "model": "gemini-2.5-flash-lite",
+        "model": "gemini-3-flash",
         "keys_loaded": len(VALID_API_KEYS),
         "endpoints": {
             "POST /api-am": "Amharic Audio Analysis",
@@ -232,7 +259,7 @@ async def health():
     return {
         "status": "healthy",
         "keys_configured": len(VALID_API_KEYS),
-        "model": "gemini-2.5-flash-lite",
+        "model": "gemini-3-flash",
         "version": "3.2.0"
     }
 
@@ -242,3 +269,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting Ra'yee Backend on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
+
