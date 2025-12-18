@@ -6,10 +6,11 @@ Production-ready deployment for Koyeb
 import os
 import io
 import base64
+import re
 import logging
 import google.generativeai as genai
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
 
@@ -23,8 +24,8 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Ra'yee Backend",
-    version="3.2.0",
-    description="Amharic/Tigrinya Smart Glass Assistant - Gemini 2.5 Flash Lite + gTTS (Multi-Key Support)"
+    version="3.4.0",
+    description="Amharic/Tigrinya Smart Glass Assistant - No Token Limits"
 )
 
 # Configure CORS for Flutter mobile app
@@ -45,7 +46,7 @@ API_KEYS = [
     os.getenv("GEMINI_API_KEY_5"),
 ]
 
-# Filter out None values (in case you only set 3 keys, for example)
+# Filter out None values
 VALID_API_KEYS = [key for key in API_KEYS if key]
 
 if not VALID_API_KEYS:
@@ -55,19 +56,19 @@ if not VALID_API_KEYS:
 logger.info(f"Loaded {len(VALID_API_KEYS)} Gemini API keys for fallback redundancy.")
 
 # Generation Config
+# UPDATED: Removed 'max_output_tokens' completely to let AI decide length.
 generation_config = {
-    "temperature": 0.5,
+    "temperature": 0.4, # Slightly lowered for more focused/clear descriptions
     "top_p": 0.95,
     "top_k": 40,
-    "max_output_tokens": 150,
     "response_mime_type": "text/plain",
 }
 
-# --- SYSTEM INSTRUCTIONS ---
+# --- SYSTEM INSTRUCTIONS (UPDATED) ---
 
 AMHARIC_INSTRUCTIONS = """
 You are "Ra'yee", a smart glass assistant for a blind person.
-Analyze the provided image and describe it directly in fluent, native Amharic Language.
+Analyze the provided image and describe the current situation shortly and clearly as much as possible in fluent, native Amharic Language.
 
 CRITICAL RULES:
 1. Output ONLY in the Ge'ez (Fidel) script.
@@ -98,7 +99,7 @@ Focus on:
 
 TIGRINYA_INSTRUCTIONS = """
 You are "Ra'yee", a smart glass assistant for a blind person.
-Analyze the provided image and describe it directly in fluent, native Tigrinya Language.
+Analyze the provided image and describe the current situation shortly and clearly as much as possible in fluent, native Tigrinya Language.
 
 CRITICAL RULES:
 1. Output ONLY in Tigrinya (Fidel) script.
@@ -127,10 +128,22 @@ Focus on:
 - ንምስጉም ዘተአማምኑን ክፉታትን ኣንፈታት።
 """
 
+def clean_text_for_tts(text: str) -> str:
+    """
+    Removes Markdown formatting (*, #, -) so gTTS reads smoothly 
+    without awkward pauses or reading symbols.
+    """
+    # Remove asterisks, hashes, and hyphens used for lists
+    clean = re.sub(r'[\*\#\-]', '', text)
+    # Collapse multiple spaces into one
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
+
 async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> str:
     """
     Helper function to process image with Gemini.
     Iterates through VALID_API_KEYS until one works.
+    Waits for the FULL response (no streaming text).
     """
     image_part = {"mime_type": "image/jpeg", "data": image_bytes}
     last_error = None
@@ -139,7 +152,7 @@ async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> st
         try:
             # Configure global GenAI with the current key
             genai.configure(api_key=api_key)
-            
+
             # Initialize model
             model = genai.GenerativeModel(
                 model_name="gemini-2.5-flash",
@@ -148,17 +161,17 @@ async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> st
             )
 
             logger.info(f"Attempting generation with API Key #{index + 1}...")
-            
-            # Generate content
-            response = model.generate_content([image_part])
-            
+
+            # Generate content (Standard async call, waits for full completion)
+            response = await model.generate_content_async([image_part])
+
             # If successful, return immediately
             return response.text.strip()
-            
+
         except Exception as e:
             logger.warning(f"API Key #{index + 1} failed: {str(e)}")
             last_error = e
-            # Continue to the next key in the loop
+            # Continue to the next key
             continue
 
     # If we exit the loop, all keys failed
@@ -171,14 +184,10 @@ async def root():
     """Root endpoint - API information"""
     return {
         "service": "Ra'yee Backend",
-        "version": "3.2.0",
+        "version": "3.4.0",
         "status": "running",
         "model": "gemini-2.5-flash",
-        "keys_loaded": len(VALID_API_KEYS),
-        "endpoints": {
-            "POST /api-am": "Amharic Audio Analysis",
-            "POST /api-ti": "Tigrinya Audio Analysis"
-        }
+        "note": "Token limits removed for full responses"
     }
 
 
@@ -187,32 +196,37 @@ async def analyze_image_amharic(image: UploadFile = File(...)):
     try:
         if not image.filename:
             raise HTTPException(status_code=400, detail="No image file provided")
-        
+
         image_bytes = await image.read()
-        
-        # 1. Get Text (with fallback logic)
+
+        # 1. Get COMPLETE Text from Gemini
         amharic_text = await process_image_with_gemini(image_bytes, AMHARIC_INSTRUCTIONS)
         
         if not amharic_text:
             raise HTTPException(status_code=500, detail="AI returned empty response")
+            
+        # 2. Clean Text for better Audio flow
+        spoken_text = clean_text_for_tts(amharic_text)
 
-        # 2. Generate Audio
-        tts = gTTS(text=amharic_text, lang='am', slow=False)
+        # 3. Generate COMPLETE Audio
+        # This converts the entire text to audio before sending anything
+        tts = gTTS(text=spoken_text, lang='am', slow=False)
         audio_buffer = io.BytesIO()
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
-        
-        # 3. Send Complete Response (removed streaming)
-        return Response(
-            content=audio_buffer.getvalue(),
+
+        # 4. Return Audio File
+        # StreamingResponse here just means "sending a file", it does not mean "AI streaming"
+        return StreamingResponse(
+            audio_buffer,
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=rayee_am.mp3",
                 "X-Amharic-Text": base64.b64encode(amharic_text.encode('utf-8')).decode('utf-8'),
-                "X-English-Text": "" # Safety fix for app compatibility
+                "X-English-Text": "" 
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -223,32 +237,35 @@ async def analyze_image_tigrinya(image: UploadFile = File(...)):
     try:
         if not image.filename:
             raise HTTPException(status_code=400, detail="No image file provided")
-        
+
         image_bytes = await image.read()
-        
-        # 1. Get Text (with fallback logic)
+
+        # 1. Get COMPLETE Text from Gemini
         tigrinya_text = await process_image_with_gemini(image_bytes, TIGRINYA_INSTRUCTIONS)
-        
+
         if not tigrinya_text:
             raise HTTPException(status_code=500, detail="AI returned empty response")
 
-        # 2. Generate Audio (using 'am' voice for Ge'ez script)
-        tts = gTTS(text=tigrinya_text, lang='am', slow=False)
+        # 2. Clean Text for better Audio flow
+        spoken_text = clean_text_for_tts(tigrinya_text)
+
+        # 3. Generate COMPLETE Audio (using 'am' voice for Ge'ez script)
+        tts = gTTS(text=spoken_text, lang='am', slow=False)
         audio_buffer = io.BytesIO()
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
-        
-        # 3. Send Complete Response (removed streaming)
-        return Response(
-            content=audio_buffer.getvalue(),
+
+        # 4. Return Audio File
+        return StreamingResponse(
+            audio_buffer,
             media_type="audio/mpeg",
             headers={
                 "Content-Disposition": "attachment; filename=rayee_ti.mp3",
                 "X-Tigrinya-Text": base64.b64encode(tigrinya_text.encode('utf-8')).decode('utf-8'),
-                "X-English-Text": "" # Safety fix for app compatibility
+                "X-English-Text": ""
             }
         )
-        
+
     except Exception as e:
         logger.error(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -260,7 +277,7 @@ async def health():
         "status": "healthy",
         "keys_configured": len(VALID_API_KEYS),
         "model": "gemini-2.5-flash",
-        "version": "3.2.0"
+        "version": "3.4.0"
     }
 
 
