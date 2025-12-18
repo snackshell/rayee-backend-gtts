@@ -142,7 +142,7 @@ async def process_image_with_gemini(image_bytes: bytes, instructions: str) -> st
             
             # Initialize model
             model = genai.GenerativeModel(
-                model_name="gemini-3-flash",
+                model_name="gemini-2.5-flash",
                 generation_config=generation_config,
                 system_instruction=instructions
             )
@@ -173,7 +173,7 @@ async def root():
         "service": "Ra'yee Backend",
         "version": "3.2.0",
         "status": "running",
-        "model": "gemini-3-flash",
+        "model": "gemini-2.5-flash",
         "keys_loaded": len(VALID_API_KEYS),
         "endpoints": {
             "POST /api-am": "Amharic Audio Analysis",
@@ -259,7 +259,7 @@ async def health():
     return {
         "status": "healthy",
         "keys_configured": len(VALID_API_KEYS),
-        "model": "gemini-3-flash",
+        "model": "gemini-2.5-flash",
         "version": "3.2.0"
     }
 
@@ -269,4 +269,5 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"Starting Ra'yee Backend on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
